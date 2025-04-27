@@ -6,8 +6,10 @@ use rumqttc::MqttOptions;
 #[derive(Debug, Clone, Bpaf)]
 #[bpaf(options)]
 struct Args {
+    /// MQTT host the battery is connected to.
     #[bpaf(env("HMTK_MQTT_HOST"))]
     mqtt_host: String,
+    /// Port of the MQTT server.
     #[bpaf(env("HMTK_MQTT_PORT"), fallback(1883))]
     mqtt_port: u16,
     #[bpaf(external, optional)]
@@ -23,8 +25,10 @@ struct Args {
 
 #[derive(Debug, Clone, Bpaf)]
 struct MqttCredentials {
+    /// Username used to connect to the MQTT server.
     #[bpaf(env("HMTK_MQTT_USERNAME"))]
     mqtt_username: String,
+    /// Password used to connect to the MQTT server.
     #[bpaf(env("HMTK_MQTT_PASSWORD"))]
     mqtt_password: String,
 }
@@ -32,16 +36,25 @@ struct MqttCredentials {
 #[derive(Debug, Clone, Bpaf)]
 #[bpaf(adjacent)]
 struct Device {
+    /// Battery device options.
     #[expect(unused, reason = "required for bpaf")]
     device: (),
-    r#type: String,
+    /// The MAC of the device.
+    ///
+    /// For example: `9523ccae1a9b`.
     mac: String,
+    /// The type of the device.
+    ///
+    /// For example: `HMA-1`.
+    r#type: String,
 }
 
 #[derive(Debug, Clone, Bpaf)]
 enum Action {
+    /// Query current statistics from the battery.
     #[bpaf(command)]
     Query {
+        /// Output format.
         #[bpaf(external(query_format))]
         format: QueryFormat,
     },
