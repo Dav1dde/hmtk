@@ -6,17 +6,8 @@ use rumqttc::MqttOptions;
 #[derive(Debug, Clone, Bpaf)]
 #[bpaf(options)]
 struct Args {
-    /// MQTT host the battery is connected to.
-    #[bpaf(env("HMTK_MQTT_HOST"))]
-    mqtt_host: String,
-    /// Port of the MQTT server.
-    #[bpaf(env("HMTK_MQTT_PORT"), fallback(1883))]
-    mqtt_port: u16,
-    /// MQTT client id.
-    #[bpaf(env("HMTK_MQTT_CLIENT"), fallback("hmtk".to_owned()))]
-    mqtt_client: String,
-    #[bpaf(external, optional)]
-    mqtt_credentials: Option<MqttCredentials>,
+    #[bpaf(external)]
+    mqtt: Mqtt,
 
     // TODO: this could be device or credentials, to query it from the API
     #[bpaf(external)]
@@ -27,13 +18,32 @@ struct Args {
 }
 
 #[derive(Debug, Clone, Bpaf)]
+#[bpaf(adjacent)]
+struct Mqtt {
+    /// MQTT options.
+    #[expect(unused, reason = "required for bpaf")]
+    mqtt: (),
+    /// MQTT host the battery is connected to.
+    #[bpaf(env("HMTK_MQTT_HOST"))]
+    host: String,
+    /// Port of the MQTT server.
+    #[bpaf(env("HMTK_MQTT_PORT"), fallback(1883))]
+    port: u16,
+    /// MQTT client id.
+    #[bpaf(env("HMTK_MQTT_CLIENT"), fallback("hmtk".to_owned()))]
+    client: String,
+    #[bpaf(external(mqtt_credentials), optional)]
+    credentials: Option<MqttCredentials>,
+}
+
+#[derive(Debug, Clone, Bpaf)]
 struct MqttCredentials {
     /// Username used to connect to the MQTT server.
     #[bpaf(env("HMTK_MQTT_USERNAME"))]
-    mqtt_username: String,
+    username: String,
     /// Password used to connect to the MQTT server.
     #[bpaf(env("HMTK_MQTT_PASSWORD"))]
-    mqtt_password: String,
+    password: String,
 }
 
 #[derive(Debug, Clone, Bpaf)]
@@ -79,14 +89,12 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let mut options = MqttOptions::new(args.mqtt_client, args.mqtt_host, args.mqtt_port);
+    tracing::info!("Connecting to mqtt://{}:{}", args.mqtt.host, args.mqtt.port);
+
+    let mut options = MqttOptions::new(args.mqtt.client, args.mqtt.host, args.mqtt.port);
     options.set_clean_session(true);
-    if let Some(MqttCredentials {
-        mqtt_username,
-        mqtt_password,
-    }) = args.mqtt_credentials
-    {
-        options.set_credentials(mqtt_username, mqtt_password);
+    if let Some(MqttCredentials { username, password }) = args.mqtt.credentials {
+        options.set_credentials(username, password);
     }
 
     let (mut device, device_loop) = hmtk::mqtt::Device::new(

@@ -37,7 +37,7 @@ Metrics can be collected via cli, currently supported output formats are JSON an
 
 ```sh
 $ htmk \
-  --mqtt-host 127.0.0.1 --mqtt-port 1883 --mqtt-username <user> --mqtt-password <password> \
+  --mqtt --host 127.0.0.1 --port 1883 --username <user> --password <password> \
   --device --mac <mac> --type <type> \
   query (--influx|--json)
 ```
@@ -92,7 +92,7 @@ Collection via [telegraf](https://github.com/influxdata/telegraf) can be easily 
 ```toml
 [[inputs.exec]]
   commands = [
-    'hmtk --device --mac <mac> --type <type> query --influx',
+    'hmtk --mqtt --device --mac <mac> --type <type> query --influx',
   ]
 
   environment = [
