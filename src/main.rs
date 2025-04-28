@@ -12,6 +12,9 @@ struct Args {
     /// Port of the MQTT server.
     #[bpaf(env("HMTK_MQTT_PORT"), fallback(1883))]
     mqtt_port: u16,
+    /// MQTT client id.
+    #[bpaf(env("HMTK_MQTT_CLIENT"), fallback("hmtk".to_owned()))]
+    mqtt_client: String,
     #[bpaf(external, optional)]
     mqtt_credentials: Option<MqttCredentials>,
 
@@ -76,7 +79,8 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let mut options = MqttOptions::new("foobar", args.mqtt_host, args.mqtt_port);
+    let mut options = MqttOptions::new(args.mqtt_client, args.mqtt_host, args.mqtt_port);
+    options.set_clean_session(true);
     if let Some(MqttCredentials {
         mqtt_username,
         mqtt_password,
@@ -85,7 +89,7 @@ async fn main() -> Result<()> {
         options.set_credentials(mqtt_username, mqtt_password);
     }
 
-    let (device, device_loop) = hmtk::mqtt::Device::new(
+    let (mut device, device_loop) = hmtk::mqtt::Device::new(
         options,
         DeviceOptions {
             ty: args.device.r#type,
@@ -93,17 +97,20 @@ async fn main() -> Result<()> {
         },
     )?;
 
-    tokio::task::spawn(device_loop.into_future());
+    let device_loop = tokio::task::spawn(device_loop.into_future());
 
     match args.action {
-        Action::Query { format } => query(device, format),
+        Action::Query { format } => query(&mut device, format),
     }
     .await?;
+
+    device.disconnect().await?;
+    device_loop.await??;
 
     Ok(())
 }
 
-async fn query(mut device: hmtk::mqtt::Device, format: QueryFormat) -> Result<()> {
+async fn query(device: &mut hmtk::mqtt::Device, format: QueryFormat) -> Result<()> {
     let device_info = device.device_info().await?;
 
     let out = match format {

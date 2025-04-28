@@ -1,12 +1,15 @@
 use core::fmt;
 use std::{
     collections::BTreeMap,
+    io::ErrorKind,
     str::FromStr,
     time::{Duration, SystemTime},
 };
 
 use futures::FutureExt;
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
+use rumqttc::{
+    AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Outgoing, Packet, QoS, StateError,
+};
 use serde::Serialize;
 use tokio::sync::watch;
 
@@ -179,7 +182,7 @@ impl Device {
         let (client, ev) = AsyncClient::new(mqtt, 10);
 
         client
-            .try_subscribe(device.data_topic(), QoS::AtLeastOnce)
+            .try_subscribe(device.data_topic(), QoS::AtMostOnce)
             .expect("initial subscribe to succeed");
 
         let (device_info_tx, device_info_rx) = watch::channel(Default::default());
@@ -191,6 +194,7 @@ impl Device {
         };
         let ev = DeviceLoop {
             ev,
+            disconnect: false,
             device_info: device_info_tx,
         };
 
@@ -218,10 +222,20 @@ impl Device {
 
         Ok(DeviceInfo::from(&*value))
     }
+
+    /// Disconnects the client from the broker.
+    ///
+    /// This disconnects the device loop from the broker, rendering all instances of this
+    /// client disconnected and no longer functional.
+    pub async fn disconnect(&mut self) -> Result<()> {
+        self.client.disconnect().await?;
+        Ok(())
+    }
 }
 
 pub struct DeviceLoop {
     ev: EventLoop,
+    disconnect: bool,
     device_info: watch::Sender<Measurement<RawDeviceInfo>>,
 }
 
@@ -243,7 +257,6 @@ impl DeviceLoop {
                     tracing::debug!("received on {} value {:?}", message.topic, message.payload);
 
                     // TODO: filter topic
-                    // TODO: include timestamp
                     let message = Message::parse(message.payload).unwrap();
                     let device_info = RawDeviceInfo::try_from(&message).unwrap();
                     let Ok(()) = self.device_info.send(Measurement::new(device_info)) else {
@@ -254,11 +267,21 @@ impl DeviceLoop {
                 Ok(Event::Incoming(packet)) => {
                     tracing::trace!("received {packet:?}");
                 }
+                Ok(Event::Outgoing(Outgoing::Disconnect)) => {
+                    tracing::debug!("client wants to disconnect");
+                    self.disconnect = true;
+                }
                 Ok(Event::Outgoing(out)) => {
                     tracing::trace!("sent: {out:?}");
                 }
+                Err(ConnectionError::MqttState(StateError::Io(io)))
+                    if io.kind() == ErrorKind::ConnectionAborted && self.disconnect =>
+                {
+                    // Client sent a disconnect and the connection is now closed.
+                    return Ok(());
+                }
                 Err(err) => {
-                    tracing::debug!("connection error: {err}");
+                    tracing::warn!("connection error: {err}");
                 }
             }
         }
